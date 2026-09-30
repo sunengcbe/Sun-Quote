@@ -24,8 +24,8 @@ function model(sym) {
   const showLen = rows.some(r => r.len), showProc = rows.some(r => r.proc);
   const cols = [
     ['no', '#', 'c'], ['desc', 'Description', 'l'], ['thread', 'Thread Type', 'l'],
-    showLen && ['len', 'Thread Length', 'l'], ['mat', 'Material Type', 'l'],
-    showProc && ['proc', 'Process', 'l'], ['qty', 'Quantity', 'r'], ['price', 'Unit Price', 'r'], ['total', 'Total Amount', 'r']
+    showLen && ['len', 'Thread Length', 'c'], ['mat', 'Material Type', 'c'],
+    showProc && ['proc', 'Process', 'c'], ['qty', 'Quantity', 'c'], ['price', 'Unit Price', 'c'], ['total', 'Total Amount', 'c']
   ].filter(Boolean).map(([k, h, a]) => ({k, h, a}));
   const cell = (r, k, i) => k === 'no' ? String(i + 1)
     : k === 'qty' ? (isFinite(r.qty) ? String(r.qty) : '')
@@ -39,7 +39,7 @@ function model(sym) {
     [T(c.phone), T(c.email), T(c.website)].filter(Boolean).join('   |   '),
     ...T(c.other).split('\n').map(T).filter(Boolean)
   ].filter(Boolean);
-  const custRight = [['Date', fmtDate(q.date)], ['Contact', T(cust.contact)], ['Email', T(cust.email)], ['GSTIN', T(cust.gstin)]].filter(r => r[1]);
+  const custRight = [['Contact', T(cust.contact)], ['Email', T(cust.email)], ['GSTIN', T(cust.gstin)]].filter(r => r[1]);
   const notes = q.notes.split('\n').map(T).filter(Boolean).map(n => n.replace(/^\d+[.)]\s*/, ''));
   return {rows, cols, cell, total, coLines, custRight, notes, custAddr: T(cust.address).split('\n').map(T).filter(Boolean)};
 }
@@ -157,27 +157,160 @@ function validate() {
 }
 
 /* ---------- PDF ---------- */
-let fontCache = null;
-async function loadFonts(doc) {
-  try {
-    if (!fontCache) {
-      const base = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/ibmplexsans/IBMPlexSans-';
-      const files = {Regular: ['Plex', 'normal'], SemiBold: ['PlexSemi', 'normal'], Bold: ['Plex', 'bold']};
-      fontCache = {};
-      for (const [n, meta] of Object.entries(files)) {
-        const buf = new Uint8Array(await (await fetch(`${base}${n}.ttf`)).arrayBuffer());
-        let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-        fontCache[n] = {b64: btoa(bin), meta};
-      }
-    }
-    for (const [n, {b64, meta}] of Object.entries(fontCache)) {
-      doc.addFileToVFS(`Plex-${n}.ttf`, b64); doc.addFont(`Plex-${n}.ttf`, meta[0], meta[1]);
-    }
-    return {ok: true, reg: ['Plex', 'normal'], semi: ['PlexSemi', 'normal'], bold: ['Plex', 'bold']};
-  } catch (err) {
-    console.warn('Font load failed, using Helvetica and "Rs."', err);
-    return {ok: false, reg: ['helvetica', 'normal'], semi: ['helvetica', 'bold'], bold: ['helvetica', 'bold']};
+const GF = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/', GR = 'https://raw.githubusercontent.com/google/fonts/main/ofl/';
+const fu = p => [GF + p, GR + p];
+async function fetchTTF(urls) {
+  for (const u of urls) {
+    try {
+      const c = new AbortController(), t = setTimeout(() => c.abort(), 15000);
+      const r = await fetch(u, {signal: c.signal}); clearTimeout(t);
+      if (!r.ok) continue;
+      const buf = new Uint8Array(await r.arrayBuffer());
+      const sig = ((buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3]) >>> 0;
+      if (sig !== 0x00010000 && sig !== 0x74727565) continue;      // must be a real TrueType file
+      let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      return btoa(bin);
+    } catch {}
   }
+  return null;
+}
+function registerFonts(doc, d) {
+  const F = {ok: false, headOk: false, reg: ['helvetica', 'normal'], semi: ['helvetica', 'bold'], bold: ['helvetica', 'bold'], head: ['helvetica', 'bold']};
+  if (d.plex) {
+    [['Regular', 'Plex', 'normal'], ['SemiBold', 'PlexSemi', 'normal'], ['Bold', 'Plex', 'bold']].forEach(([n, fam, st]) => { doc.addFileToVFS(`Plex-${n}.ttf`, d.plex[n]); doc.addFont(`Plex-${n}.ttf`, fam, st); });
+    F.ok = true; F.reg = ['Plex', 'normal']; F.semi = ['PlexSemi', 'normal']; F.bold = ['Plex', 'bold'];
+  }
+  if (d.head) { doc.addFileToVFS('Head.ttf', d.head); doc.addFont('Head.ttf', 'Head', 'normal'); F.head = ['Head', 'normal']; F.headOk = true; }
+  return F;
+}
+function fontWorks(d) {           // dry run incl. embedding, so a bad font never breaks the real PDF
+  try {
+    const t = new window.jspdf.jsPDF(), F = registerFonts(t, d);
+    [F.reg, F.semi, F.bold, F.head].forEach(f => { t.setFont(f[0], f[1]); t.text('Test ₹ 123 THREAD LENGTH', 10, 10); });
+    t.output('arraybuffer'); return true;
+  } catch (e) { console.warn('Font rejected', e); return false; }
+}
+/* Fonts are pre-loaded in the background when the page opens, so Generate is instant */
+const fontsReady = (async () => {
+  try {
+    const [r, s, b, h] = await Promise.all([fetchTTF(fu('ibmplexsans/IBMPlexSans-Regular.ttf')), fetchTTF(fu('ibmplexsans/IBMPlexSans-SemiBold.ttf')), fetchTTF(fu('ibmplexsans/IBMPlexSans-Bold.ttf')), fetchTTF(fu('michroma/Michroma-Regular.ttf'))]);
+    await new Promise(r => setTimeout(r, 0));
+    const d = {plex: (r && s && b) ? {Regular: r, SemiBold: s, Bold: b} : null, head: h};
+    if (d.plex && !fontWorks({plex: d.plex})) d.plex = null;
+    if (d.head && !fontWorks({head: d.head})) d.head = null;
+    return d;
+  } catch { return {plex: null, head: null}; }
+})();
+
+async function buildPDF(d) {
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit: 'mm', format: 'a4', orientation: 'portrait'});
+  const F = registerFonts(doc, d);
+  const sym = F.ok ? '₹' : 'Rs. ';
+  const m = model(sym);
+  const M = 15, R = 195, PW = 210, PH = 297, GOLD = '#D4A72C', RICH = '#B88918';
+  const font = (f, size, color) => { doc.setFont(f[0], f[1]); doc.setFontSize(size); doc.setTextColor(color); };
+  const wrap = (t, w) => doc.splitTextToSize(t, w);
+  const runTable = o => (typeof doc.autoTable === 'function') ? doc.autoTable(o) : window.jspdf.autoTable(doc, o);
+
+  /* Header */
+  let textX = M, yL = 21;
+  if (company.logo) {
+    const h = Math.min(18, 34 * company.logo.h / company.logo.w), w = h * company.logo.w / company.logo.h;
+    doc.addImage(company.logo.data, 'PNG', M, 14, w, h); textX = M + w + 5;
+  }
+  font(F.bold, 15, '#111111');
+  const nm = wrap((T(company.name) || 'Company Name').toUpperCase(), 135 - textX);
+  doc.text(nm, textX, yL); yL += nm.length * 6.2 - 1;
+  font(F.reg, 8.5, '#666666');
+  m.coLines.forEach(l => wrap(l, 135 - textX).forEach(x => { doc.text(x, textX, yL); yL += 4.1; }));
+  doc.setFillColor(GOLD); doc.rect(R - 45, 14, 45, 1.2, 'F');
+  font(F.bold, 25, '#111111'); doc.text('QUOTATION', R, 28, {align: 'right'});
+  font(F.semi, 9, '#111111'); const qn = T(q.no), dt = fmtDate(q.date);
+  doc.text(qn, R, 35, {align: 'right'}); doc.text(dt, R, 40.5, {align: 'right'});
+  font(F.reg, 9, '#666666');
+  doc.text('Quote No: ', R - doc.getTextWidth(qn) - 0.5, 35, {align: 'right'});
+  doc.text('Date: ', R - doc.getTextWidth(dt) - 0.5, 40.5, {align: 'right'});
+  let y = Math.max(yL, 44) + 2;
+  doc.setDrawColor(GOLD); doc.setLineWidth(0.9); doc.line(M, y, R, y);
+
+  /* Customer (date is shown only once, in the header) */
+  y += 8;
+  font(F.semi, 8, RICH); doc.text('TO', M, y, {charSpace: 0.8});
+  let yc = y + 5.5;
+  font(F.bold, 11, '#111111');
+  const cn = wrap(T(cust.name).toUpperCase(), 100); doc.text(cn, M, yc); yc += cn.length * 5;
+  font(F.reg, 9, '#292929');
+  m.custAddr.forEach(l => wrap(l, 100).forEach(x => { doc.text(x, M, yc); yc += 4.4; }));
+  let yr = y + 5.5;
+  m.custRight.forEach(([l, v]) => {
+    font(F.reg, 9, '#666666'); doc.text(l + ':', 128, yr);
+    font(F.semi, 9, '#111111'); const lines = wrap(v, R - 145); doc.text(lines, 145, yr); yr += lines.length * 4.4 + 0.8;
+  });
+  y = Math.max(yc, yr) + 3;
+
+  /* Items table: sized to use the page (built for up to ~18 rows) */
+  const n = m.rows.length;
+  const pad = n <= 6 ? 4.2 : n <= 10 ? 3.5 : n <= 14 ? 2.8 : n <= 17 ? 2.3 : 2;
+  const fs = n <= 10 ? 10 : n <= 14 ? 9.5 : 9;
+  const HF = 6.2, HLH = 3.1;
+  const columnStyles = {};
+  m.cols.forEach((c, i) => {
+    columnStyles[i] = {halign: c.a === 'l' ? 'left' : 'center'};
+    if (c.k === 'no') columnStyles[i].cellWidth = 9;
+    if (c.k === 'desc') columnStyles[i].minCellWidth = 38;
+  });
+  runTable({
+    startY: y, margin: {left: M, right: PW - R, top: 18, bottom: 24}, theme: 'plain', tableWidth: 'auto',
+    head: [m.cols.map(c => c.h.toUpperCase())],
+    body: m.rows.map((r, i) => m.cols.map(c => m.cell(r, c.k, i))),
+    columnStyles, showHead: 'everyPage', rowPageBreak: 'avoid',
+    styles: {font: F.reg[0], fontStyle: F.reg[1], fontSize: fs, textColor: '#111111', cellPadding: {top: pad, bottom: pad, left: 2.4, right: 2.4}, lineColor: '#E8E8E8', lineWidth: {bottom: 0.2}, valign: 'middle', overflow: 'linebreak'},
+    /* head text is drawn manually (centred, faux-bold); autoTable's own head text is same colour as the fill so it is invisible but still measured */
+    headStyles: {fillColor: '#111111', textColor: '#111111', font: F.head[0], fontStyle: F.head[1], fontSize: HF, halign: 'center', valign: 'middle', minCellHeight: 11, cellPadding: {top: 2.5, bottom: 2.5, left: 1.5, right: 1.5}, lineWidth: 0},
+    alternateRowStyles: {fillColor: '#FAFAFA'},
+    didDrawCell: d => {
+      if (d.section !== 'head') return;
+      const c = d.cell, lines = Array.isArray(c.text) ? c.text : [String(c.text)];
+      doc.setFont(F.head[0], F.head[1]); doc.setFontSize(HF); doc.setTextColor('#FFFFFF');
+      doc.setDrawColor('#FFFFFF'); doc.setLineWidth(F.headOk ? 0.12 : 0);
+      const top = c.y + (c.height - lines.length * HLH) / 2 + HLH * 0.78;
+      lines.forEach((l, i) => doc.text(String(l), c.x + c.width / 2, top + i * HLH, {align: 'center', renderingMode: F.headOk ? 'fillThenStroke' : 'fill'}));
+      doc.setDrawColor(GOLD); doc.setLineWidth(0.8); doc.line(c.x, c.y + c.height, c.x + c.width, c.y + c.height);
+    }
+  });
+  y = doc.lastAutoTable.finalY;
+
+  /* Total (kept together) */
+  if (y + 22 > PH - 24) { doc.addPage(); y = 18; }
+  y += 6; doc.setFillColor('#111111'); doc.rect(R - 92, y, 92, 12, 'F');
+  font(F.semi, 9.5, '#FFFFFF'); doc.text('TOTAL AMOUNT', R - 88, y + 7.6, {charSpace: 0.4});
+  font(F.bold, 12, GOLD); doc.text(`${sym}${fmt(m.total)}`, R - 4, y + 7.9, {align: 'right'});
+  y += 12;
+
+  /* Notes: larger type, kept together where possible */
+  if (m.notes.length) {
+    const NF = 10.5, NL = 5.4;
+    font(F.reg, NF, '#292929');
+    const blocks = m.notes.map((t, i) => wrap(`${i + 1}.  ${t}`, R - M - 4));
+    const h = 14 + blocks.reduce((s, b) => s + b.length * NL + 1.5, 0);
+    y += 11; if (y + h > PH - 24) { doc.addPage(); y = 22; }
+    doc.setFillColor(GOLD); doc.rect(M, y - 4, 1.3, 5.2, 'F');
+    font(F.semi, 10.5, '#111111'); doc.text('NOTES', M + 3.8, y, {charSpace: 0.9});
+    y += 7; font(F.reg, NF, '#292929');
+    blocks.forEach(b => { b.forEach(l => { if (y > PH - 24) { doc.addPage(); y = 22; font(F.reg, NF, '#292929'); } doc.text(l, M + 1, y); y += NL; }); y += 1.5; });
+  }
+
+  /* Footer on every page */
+  const pages = doc.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setFillColor(GOLD); doc.rect(PW / 2 - 9, PH - 16, 18, 0.8, 'F');
+    font(F.semi, 7.5, '#292929'); doc.text('THANK YOU FOR YOUR BUSINESS', PW / 2, PH - 10.5, {align: 'center', charSpace: 0.9});
+    if (pages > 1) { font(F.reg, 7.5, '#666666'); doc.text(`Page ${p} of ${pages}`, R, PH - 10.5, {align: 'right'}); }
+  }
+  const clean = s => T(s).replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').replace(/-+/g, '-') || 'Quotation';
+  doc.save(`Quotation_${clean(q.no)}_${clean(cust.name)}.pdf`);
 }
 
 async function generatePDF() {
@@ -186,100 +319,15 @@ async function generatePDF() {
   box.hidden = true;
   const btn = $('#generate'); btn.disabled = true; btn.textContent = 'GENERATING...';
   try {
-    const {jsPDF} = window.jspdf;
-    const doc = new jsPDF({unit: 'mm', format: 'a4', orientation: 'portrait'});
-    const F = await loadFonts(doc);
-    const sym = F.ok ? '₹' : 'Rs. ';
-    const m = model(sym);
-    const M = 15, R = 195, PW = 210, PH = 297, GOLD = '#D4A72C', RICH = '#B88918';
-    const font = (f, size, color) => { doc.setFont(f[0], f[1]); doc.setFontSize(size); doc.setTextColor(color); };
-    const wrap = (t, w) => doc.splitTextToSize(t, w);
-
-    /* Header */
-    let textX = M, yL = 21;
-    if (company.logo) {
-      const h = Math.min(18, 34 * company.logo.h / company.logo.w), w = h * company.logo.w / company.logo.h;
-      doc.addImage(company.logo.data, 'PNG', M, 14, w, h); textX = M + w + 5;
-    }
-    font(F.bold, 15, '#111111');
-    const nm = wrap((T(company.name) || 'Company Name').toUpperCase(), 135 - textX);
-    doc.text(nm, textX, yL); yL += nm.length * 6.2 - 1;
-    font(F.reg, 8.5, '#666666');
-    m.coLines.forEach(l => wrap(l, 135 - textX).forEach(x => { doc.text(x, textX, yL); yL += 4.1; }));
-    doc.setFillColor(GOLD); doc.rect(R - 45, 14, 45, 1.2, 'F');
-    font(F.bold, 25, '#111111'); doc.text('QUOTATION', R, 28, {align: 'right'});
-    font(F.reg, 9, '#666666'); doc.text('Quote No: ', R - doc.getTextWidth(T(q.no)) - 0.3, 35, {align: 'right'});
-    font(F.semi, 9, '#111111'); doc.text(T(q.no), R, 35, {align: 'right'});
-    font(F.reg, 9, '#666666'); doc.text('Date: ', R - doc.getTextWidth(fmtDate(q.date)) - 0.3, 40.5, {align: 'right'});
-    font(F.semi, 9, '#111111'); doc.text(fmtDate(q.date), R, 40.5, {align: 'right'});
-    let y = Math.max(yL, 44) + 2;
-    doc.setDrawColor(GOLD); doc.setLineWidth(0.9); doc.line(M, y, R, y);
-
-    /* Customer */
-    y += 9;
-    font(F.semi, 8, RICH); doc.text('TO', M, y, {charSpace: 0.8});
-    let yc = y + 5.5;
-    font(F.bold, 11, '#111111');
-    const cn = wrap(T(cust.name).toUpperCase(), 95); doc.text(cn, M, yc); yc += cn.length * 5;
-    font(F.reg, 9, '#292929');
-    m.custAddr.forEach(l => wrap(l, 95).forEach(x => { doc.text(x, M, yc); yc += 4.4; }));
-    let yr = y + 5.5;
-    m.custRight.forEach(([l, v]) => {
-      font(F.reg, 9, '#666666'); doc.text(l + ':', 128, yr);
-      font(F.semi, 9, '#111111'); const lines = wrap(v, R - 145); doc.text(lines, 145, yr); yr += lines.length * 4.4 + 0.8;
-    });
-    y = Math.max(yc, yr) + 4;
-
-    /* Items table */
-    const colW = {no: 9, qty: 18, price: 26, total: 30};
-    const columnStyles = {}; m.cols.forEach((c, i) => { columnStyles[i] = {halign: {l: 'left', r: 'right', c: 'center'}[c.a], ...(colW[c.k] ? {cellWidth: colW[c.k]} : {})}; });
-    doc.autoTable({
-      startY: y, margin: {left: M, right: PW - R, top: 18, bottom: 24}, theme: 'plain',
-      head: [m.cols.map(c => c.h)],
-      body: m.rows.map((r, i) => m.cols.map(c => m.cell(r, c.k, i))),
-      columnStyles, showHead: 'everyPage', rowPageBreak: 'avoid',
-      styles: {font: F.reg[0], fontStyle: F.reg[1], fontSize: 8.8, textColor: '#111111', cellPadding: {top: 2.8, bottom: 2.8, left: 2.2, right: 2.2}, lineColor: '#E8E8E8', lineWidth: {bottom: 0.2}, valign: 'top'},
-      headStyles: {fillColor: '#111111', textColor: '#FFFFFF', font: F.semi[0], fontStyle: F.semi[1], fontSize: 8.3, valign: 'middle', lineWidth: 0},
-      alternateRowStyles: {fillColor: '#FAFAFA'},
-      didDrawCell: d => { if (d.section === 'head') { doc.setDrawColor(GOLD); doc.setLineWidth(0.8); doc.line(d.cell.x, d.cell.y + d.cell.height, d.cell.x + d.cell.width, d.cell.y + d.cell.height); } }
-    });
-    y = doc.lastAutoTable.finalY;
-
-    /* Total (kept together) */
-    if (y + 20 > PH - 24) { doc.addPage(); y = 18; }
-    y += 6; doc.setFillColor('#111111'); doc.rect(R - 82, y, 82, 11, 'F');
-    font(F.semi, 9, '#FFFFFF'); doc.text('TOTAL AMOUNT', R - 78, y + 7, {charSpace: 0.4});
-    font(F.bold, 11, GOLD); doc.text(`${sym}${fmt(m.total)}`, R - 4, y + 7.2, {align: 'right'});
-    y += 11;
-
-    /* Notes (kept together where possible) */
-    if (m.notes.length) {
-      font(F.reg, 9, '#292929');
-      const blocks = m.notes.map((n, i) => wrap(`${i + 1}.  ${n}`, R - M - 4));
-      const h = 12 + blocks.reduce((s, b) => s + b.length * 4.6 + 1.2, 0);
-      y += 10; if (y + h > PH - 24) { doc.addPage(); y = 22; }
-      doc.setFillColor(GOLD); doc.rect(M, y - 3.6, 1.2, 4.6, 'F');
-      font(F.semi, 9, '#111111'); doc.text('NOTES', M + 3.5, y, {charSpace: 0.8});
-      y += 6; font(F.reg, 9, '#292929');
-      blocks.forEach(b => { b.forEach(l => { if (y > PH - 24) { doc.addPage(); y = 22; font(F.reg, 9, '#292929'); } doc.text(l, M + 1, y); y += 4.6; }); y += 1.2; });
-    }
-
-    /* Footer on every page */
-    const n = doc.getNumberOfPages();
-    for (let p = 1; p <= n; p++) {
-      doc.setPage(p);
-      doc.setFillColor(GOLD); doc.rect(PW / 2 - 9, PH - 16, 18, 0.8, 'F');
-      font(F.semi, 7.5, '#292929'); doc.text('THANK YOU FOR YOUR BUSINESS', PW / 2, PH - 10.5, {align: 'center', charSpace: 0.9});
-      if (n > 1) { font(F.reg, 7.5, '#666666'); doc.text(`Page ${p} of ${n}`, R, PH - 10.5, {align: 'right'}); }
-    }
-
-    const clean = s => T(s).replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').replace(/-+/g, '-') || 'Quotation';
-    doc.save(`Quotation_${clean(q.no)}_${clean(cust.name)}.pdf`);
-
-    const mt = T(q.no).match(/^(.*?)(\d+)$/);   // suggest next number
+    if (!window.jspdf) throw new Error('PDF library did not load. Please refresh the page.');
+    await new Promise(r => setTimeout(r, 30));                       // let the button repaint
+    const d = await Promise.race([fontsReady, new Promise(r => setTimeout(() => r({plex: null, head: null}), 6000))]);
+    try { await buildPDF(d); }
+    catch (e1) { console.warn('Custom fonts failed, retrying with built-in fonts', e1); await buildPDF({plex: null, head: null}); }
+    const mt = T(q.no).match(/^(.*?)(\d+)$/);                        // suggest next number
     if (mt) { q.no = mt[1] + String(+mt[2] + 1).padStart(mt[2].length, '0'); save('qg_next', q.no); document.querySelector('[data-q=no]').value = q.no; renderPreview(); }
   } catch (err) {
-    console.error(err); alert('Could not generate the PDF. Please check your internet connection and try again.');
+    console.error(err); box.hidden = false; box.innerHTML = `<b>Could not generate the PDF.</b><ul><li>${esc(err.message || err)}</li></ul>`;
   } finally { btn.disabled = false; btn.textContent = 'GENERATE QUOTATION PDF'; }
 }
 $('#generate').onclick = generatePDF;
