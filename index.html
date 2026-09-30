@@ -6,7 +6,7 @@
 <title>Quotation Generator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Michroma&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -69,11 +69,12 @@
     <button type="button" class="generate" id="generate">GENERATE QUOTATION PDF</button>
   </section>
 
-  <aside class="preview"><div class="pv-label">LIVE PREVIEW</div><div id="pvWrap"><div id="sheet" class="sheet"></div></div></aside>
+  <aside class="preview"><div class="pv-label">LIVE PREVIEW</div><div id="pvWrap"><div id="pages"></div></div></aside>
 </main>
 
+<div id="busy" hidden>Generating PDF&hellip;</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
