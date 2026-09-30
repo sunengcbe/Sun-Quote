@@ -44,12 +44,15 @@ function model(sym) {
   return {rows, cols, cell, total, coLines, custRight, notes, custAddr: T(cust.address).split('\n').map(T).filter(Boolean)};
 }
 
-/* ---------- Live preview ---------- */
-function renderPreview() {
+/* ---------- Paginated A4 sheets: used by BOTH the live preview and the PDF ---------- */
+const LIMIT = 960;   // usable content height (px) on a 794x1123 sheet, leaves room for the footer
+function paginate(host) {
   const m = model('₹');
-  const th = m.cols.map(c => `<th class="${c.a}">${c.h}</th>`).join('');
-  const body = m.rows.map((r, i) => `<tr>${m.cols.map(c => `<td class="${c.a}">${esc(m.cell(r, c.k, i))}</td>`).join('')}</tr>`).join('');
-  $('#sheet').innerHTML = `
+  host.innerHTML = '';
+  const sheets = [];
+  const thead = `<thead><tr>${m.cols.map(c => `<th class="${c.a}">${c.h}</th>`).join('')}</tr></thead>`;
+  const rowHTML = (r, i) => `<tr>${m.cols.map(c => `<td class="${c.a}">${esc(m.cell(r, c.k, i))}</td>`).join('')}</tr>`;
+  const headerHTML = `
   <div class="hd">
     <div class="co">${company.logo ? `<img src="${company.logo.data}" alt="">` : ''}
       <div><h3>${esc(T(company.name) || 'Company Name')}</h3>${m.coLines.map(l => `<p>${esc(l)}</p>`).join('')}</div></div>
@@ -59,18 +62,39 @@ function renderPreview() {
   <div class="cu">
     <div><div class="lbl">TO</div><b>${esc(T(cust.name) || 'Customer Name')}</b>${m.custAddr.map(l => `<p>${esc(l)}</p>`).join('')}</div>
     <div>${m.custRight.map(([l, v]) => `<p><span>${l}:</span> ${esc(v)}</p>`).join('')}</div>
-  </div>
-  <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>
-  <div class="total" style="margin-top:0"><span>TOTAL AMOUNT</span><b>₹ ${fmt(m.total)}</b></div>
-  ${m.notes.length ? `<div class="notes"><div class="lbl">NOTES</div><ol>${m.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol></div>` : ''}
-  <div class="ft"><i></i>THANK YOU FOR YOUR BUSINESS</div>`;
-  fitPreview();
+  </div>`;
+  let bd, tbody;
+  const newSheet = (first, withTable) => {
+    const s = document.createElement('div'); s.className = 'sheet';
+    s.innerHTML = '<div class="bd"></div><div class="ft"><i></i>THANK YOU FOR YOUR BUSINESS<span class="pg"></span></div>';
+    host.appendChild(s); sheets.push(s); bd = s.querySelector('.bd');
+    if (first) bd.innerHTML = headerHTML;
+    if (withTable) { bd.insertAdjacentHTML('beforeend', `<table>${thead}<tbody></tbody></table>`); tbody = bd.querySelector('tbody'); }
+  };
+  const place = html => {           // add a block; if it overflows, move it to a fresh page
+    bd.insertAdjacentHTML('beforeend', html);
+    if (bd.offsetHeight > LIMIT) { bd.lastElementChild.remove(); newSheet(false, false); bd.insertAdjacentHTML('beforeend', html); }
+  };
+  newSheet(true, true);
+  m.rows.forEach((r, i) => {
+    tbody.insertAdjacentHTML('beforeend', rowHTML(r, i));
+    if (bd.offsetHeight > LIMIT && tbody.rows.length > 1) { const tr = tbody.lastElementChild; tr.remove(); newSheet(false, true); tbody.appendChild(tr); }
+  });
+  place(`<div class="total"><span>TOTAL AMOUNT</span><b>₹ ${fmt(m.total)}</b></div>`);
+  if (m.notes.length) place(`<div class="notes"><div class="lbl">NOTES</div><ol>${m.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol></div>`);
+  if (sheets.length > 1) sheets.forEach((s, i) => s.querySelector('.pg').textContent = `Page ${i + 1} of ${sheets.length}`);
+  return sheets;
+}
+let pvFrame;
+function renderPreview() {
+  cancelAnimationFrame(pvFrame);
+  pvFrame = requestAnimationFrame(() => { paginate($('#pages')); fitPreview(); });
 }
 function fitPreview() {
-  const wrap = $('#pvWrap'), sheet = $('#sheet');
+  const wrap = $('#pvWrap'), pages = $('#pages');
   const s = Math.min(1, wrap.clientWidth / 794);
-  sheet.style.transform = `scale(${s})`;
-  wrap.style.height = sheet.offsetHeight * s + 'px';
+  pages.style.transform = `scale(${s})`;
+  wrap.style.height = pages.offsetHeight * s + 'px';
 }
 window.addEventListener('resize', fitPreview);
 
@@ -156,179 +180,36 @@ function validate() {
   return errs;
 }
 
-/* ---------- PDF ---------- */
-const GF = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/', GR = 'https://raw.githubusercontent.com/google/fonts/main/ofl/';
-const fu = p => [GF + p, GR + p];
-async function fetchTTF(urls) {
-  for (const u of urls) {
-    try {
-      const c = new AbortController(), t = setTimeout(() => c.abort(), 15000);
-      const r = await fetch(u, {signal: c.signal}); clearTimeout(t);
-      if (!r.ok) continue;
-      const buf = new Uint8Array(await r.arrayBuffer());
-      const sig = ((buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3]) >>> 0;
-      if (sig !== 0x00010000 && sig !== 0x74727565) continue;      // must be a real TrueType file
-      let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-      return btoa(bin);
-    } catch {}
-  }
-  return null;
-}
-function registerFonts(doc, d) {
-  const F = {ok: false, headOk: false, reg: ['helvetica', 'normal'], semi: ['helvetica', 'bold'], bold: ['helvetica', 'bold'], head: ['helvetica', 'bold']};
-  if (d.plex) {
-    [['Regular', 'Plex', 'normal'], ['SemiBold', 'PlexSemi', 'normal'], ['Bold', 'Plex', 'bold']].forEach(([n, fam, st]) => { doc.addFileToVFS(`Plex-${n}.ttf`, d.plex[n]); doc.addFont(`Plex-${n}.ttf`, fam, st); });
-    F.ok = true; F.reg = ['Plex', 'normal']; F.semi = ['PlexSemi', 'normal']; F.bold = ['Plex', 'bold'];
-  }
-  if (d.head) { doc.addFileToVFS('Head.ttf', d.head); doc.addFont('Head.ttf', 'Head', 'normal'); F.head = ['Head', 'normal']; F.headOk = true; }
-  return F;
-}
-function fontWorks(d) {           // dry run incl. embedding, so a bad font never breaks the real PDF
-  try {
-    const t = new window.jspdf.jsPDF(), F = registerFonts(t, d);
-    [F.reg, F.semi, F.bold, F.head].forEach(f => { t.setFont(f[0], f[1]); t.text('Test ₹ 123 THREAD LENGTH', 10, 10); });
-    t.output('arraybuffer'); return true;
-  } catch (e) { console.warn('Font rejected', e); return false; }
-}
-/* Fonts are pre-loaded in the background when the page opens, so Generate is instant */
-const fontsReady = (async () => {
-  try {
-    const [r, s, b, h] = await Promise.all([fetchTTF(fu('ibmplexsans/IBMPlexSans-Regular.ttf')), fetchTTF(fu('ibmplexsans/IBMPlexSans-SemiBold.ttf')), fetchTTF(fu('ibmplexsans/IBMPlexSans-Bold.ttf')), fetchTTF(fu('michroma/Michroma-Regular.ttf'))]);
-    await new Promise(r => setTimeout(r, 0));
-    const d = {plex: (r && s && b) ? {Regular: r, SemiBold: s, Bold: b} : null, head: h};
-    if (d.plex && !fontWorks({plex: d.plex})) d.plex = null;
-    if (d.head && !fontWorks({head: d.head})) d.head = null;
-    return d;
-  } catch { return {plex: null, head: null}; }
-})();
-
-async function buildPDF(d) {
-  const {jsPDF} = window.jspdf;
-  const doc = new jsPDF({unit: 'mm', format: 'a4', orientation: 'portrait'});
-  const F = registerFonts(doc, d);
-  const sym = F.ok ? '₹' : 'Rs. ';
-  const m = model(sym);
-  const M = 15, R = 195, PW = 210, PH = 297, GOLD = '#D4A72C', RICH = '#B88918';
-  const font = (f, size, color) => { doc.setFont(f[0], f[1]); doc.setFontSize(size); doc.setTextColor(color); };
-  const wrap = (t, w) => doc.splitTextToSize(t, w);
-  const runTable = o => (typeof doc.autoTable === 'function') ? doc.autoTable(o) : window.jspdf.autoTable(doc, o);
-
-  /* Header */
-  let textX = M, yL = 21;
-  if (company.logo) {
-    const h = Math.min(18, 34 * company.logo.h / company.logo.w), w = h * company.logo.w / company.logo.h;
-    doc.addImage(company.logo.data, 'PNG', M, 14, w, h); textX = M + w + 5;
-  }
-  font(F.bold, 15, '#111111');
-  const nm = wrap((T(company.name) || 'Company Name').toUpperCase(), 135 - textX);
-  doc.text(nm, textX, yL); yL += nm.length * 6.2 - 1;
-  font(F.reg, 8.5, '#666666');
-  m.coLines.forEach(l => wrap(l, 135 - textX).forEach(x => { doc.text(x, textX, yL); yL += 4.1; }));
-  doc.setFillColor(GOLD); doc.rect(R - 45, 14, 45, 1.2, 'F');
-  font(F.bold, 25, '#111111'); doc.text('QUOTATION', R, 28, {align: 'right'});
-  font(F.semi, 9, '#111111'); const qn = T(q.no), dt = fmtDate(q.date);
-  doc.text(qn, R, 35, {align: 'right'}); doc.text(dt, R, 40.5, {align: 'right'});
-  font(F.reg, 9, '#666666');
-  doc.text('Quote No: ', R - doc.getTextWidth(qn) - 0.5, 35, {align: 'right'});
-  doc.text('Date: ', R - doc.getTextWidth(dt) - 0.5, 40.5, {align: 'right'});
-  let y = Math.max(yL, 44) + 2;
-  doc.setDrawColor(GOLD); doc.setLineWidth(0.9); doc.line(M, y, R, y);
-
-  /* Customer (date is shown only once, in the header) */
-  y += 8;
-  font(F.semi, 8, RICH); doc.text('TO', M, y, {charSpace: 0.8});
-  let yc = y + 5.5;
-  font(F.bold, 11, '#111111');
-  const cn = wrap(T(cust.name).toUpperCase(), 100); doc.text(cn, M, yc); yc += cn.length * 5;
-  font(F.reg, 9, '#292929');
-  m.custAddr.forEach(l => wrap(l, 100).forEach(x => { doc.text(x, M, yc); yc += 4.4; }));
-  let yr = y + 5.5;
-  m.custRight.forEach(([l, v]) => {
-    font(F.reg, 9, '#666666'); doc.text(l + ':', 128, yr);
-    font(F.semi, 9, '#111111'); const lines = wrap(v, R - 145); doc.text(lines, 145, yr); yr += lines.length * 4.4 + 0.8;
-  });
-  y = Math.max(yc, yr) + 3;
-
-  /* Items table: sized to use the page (built for up to ~18 rows) */
-  const n = m.rows.length;
-  const pad = n <= 6 ? 4.2 : n <= 10 ? 3.5 : n <= 14 ? 2.8 : n <= 17 ? 2.3 : 2;
-  const fs = n <= 10 ? 10 : n <= 14 ? 9.5 : 9;
-  const HF = 6.2, HLH = 3.1;
-  const columnStyles = {};
-  m.cols.forEach((c, i) => {
-    columnStyles[i] = {halign: c.a === 'l' ? 'left' : 'center'};
-    if (c.k === 'no') columnStyles[i].cellWidth = 9;
-    if (c.k === 'desc') columnStyles[i].minCellWidth = 38;
-  });
-  runTable({
-    startY: y, margin: {left: M, right: PW - R, top: 18, bottom: 24}, theme: 'plain', tableWidth: 'auto',
-    head: [m.cols.map(c => c.h.toUpperCase())],
-    body: m.rows.map((r, i) => m.cols.map(c => m.cell(r, c.k, i))),
-    columnStyles, showHead: 'everyPage', rowPageBreak: 'avoid',
-    styles: {font: F.reg[0], fontStyle: F.reg[1], fontSize: fs, textColor: '#111111', cellPadding: {top: pad, bottom: pad, left: 2.4, right: 2.4}, lineColor: '#E8E8E8', lineWidth: {bottom: 0.2}, valign: 'middle', overflow: 'linebreak'},
-    /* head text is drawn manually (centred, faux-bold); autoTable's own head text is same colour as the fill so it is invisible but still measured */
-    headStyles: {fillColor: '#111111', textColor: '#111111', font: F.head[0], fontStyle: F.head[1], fontSize: HF, halign: 'center', valign: 'middle', minCellHeight: 11, cellPadding: {top: 2.5, bottom: 2.5, left: 1.5, right: 1.5}, lineWidth: 0},
-    alternateRowStyles: {fillColor: '#FAFAFA'},
-    didDrawCell: d => {
-      if (d.section !== 'head') return;
-      const c = d.cell, lines = Array.isArray(c.text) ? c.text : [String(c.text)];
-      doc.setFont(F.head[0], F.head[1]); doc.setFontSize(HF); doc.setTextColor('#FFFFFF');
-      doc.setDrawColor('#FFFFFF'); doc.setLineWidth(F.headOk ? 0.12 : 0);
-      const top = c.y + (c.height - lines.length * HLH) / 2 + HLH * 0.78;
-      lines.forEach((l, i) => doc.text(String(l), c.x + c.width / 2, top + i * HLH, {align: 'center', renderingMode: F.headOk ? 'fillThenStroke' : 'fill'}));
-      doc.setDrawColor(GOLD); doc.setLineWidth(0.8); doc.line(c.x, c.y + c.height, c.x + c.width, c.y + c.height);
-    }
-  });
-  y = doc.lastAutoTable.finalY;
-
-  /* Total (kept together) */
-  if (y + 22 > PH - 24) { doc.addPage(); y = 18; }
-  y += 6; doc.setFillColor('#111111'); doc.rect(R - 92, y, 92, 12, 'F');
-  font(F.semi, 9.5, '#FFFFFF'); doc.text('TOTAL AMOUNT', R - 88, y + 7.6, {charSpace: 0.4});
-  font(F.bold, 12, GOLD); doc.text(`${sym}${fmt(m.total)}`, R - 4, y + 7.9, {align: 'right'});
-  y += 12;
-
-  /* Notes: larger type, kept together where possible */
-  if (m.notes.length) {
-    const NF = 10.5, NL = 5.4;
-    font(F.reg, NF, '#292929');
-    const blocks = m.notes.map((t, i) => wrap(`${i + 1}.  ${t}`, R - M - 4));
-    const h = 14 + blocks.reduce((s, b) => s + b.length * NL + 1.5, 0);
-    y += 11; if (y + h > PH - 24) { doc.addPage(); y = 22; }
-    doc.setFillColor(GOLD); doc.rect(M, y - 4, 1.3, 5.2, 'F');
-    font(F.semi, 10.5, '#111111'); doc.text('NOTES', M + 3.8, y, {charSpace: 0.9});
-    y += 7; font(F.reg, NF, '#292929');
-    blocks.forEach(b => { b.forEach(l => { if (y > PH - 24) { doc.addPage(); y = 22; font(F.reg, NF, '#292929'); } doc.text(l, M + 1, y); y += NL; }); y += 1.5; });
-  }
-
-  /* Footer on every page */
-  const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setFillColor(GOLD); doc.rect(PW / 2 - 9, PH - 16, 18, 0.8, 'F');
-    font(F.semi, 7.5, '#292929'); doc.text('THANK YOU FOR YOUR BUSINESS', PW / 2, PH - 10.5, {align: 'center', charSpace: 0.9});
-    if (pages > 1) { font(F.reg, 7.5, '#666666'); doc.text(`Page ${p} of ${pages}`, R, PH - 10.5, {align: 'right'}); }
-  }
-  const clean = s => T(s).replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').replace(/-+/g, '-') || 'Quotation';
-  doc.save(`Quotation_${clean(q.no)}_${clean(cust.name)}.pdf`);
-}
-
+/* ---------- PDF: the sheets shown in the preview are captured 1:1 ---------- */
 async function generatePDF() {
   const errs = validate(), box = $('#errors');
   if (errs.length) { box.hidden = false; box.innerHTML = `<b>Please fix the following:</b><ul>${errs.map(e => `<li>${esc(e)}</li>`).join('')}</ul>`; box.scrollIntoView({behavior: 'smooth', block: 'center'}); return; }
   box.hidden = true;
-  const btn = $('#generate'); btn.disabled = true; btn.textContent = 'GENERATING...';
+  const btn = $('#generate'), busy = $('#busy'); btn.disabled = true; busy.hidden = false;
+  const y0 = window.scrollY; let host;
   try {
-    if (!window.jspdf) throw new Error('PDF library did not load. Please refresh the page.');
-    await new Promise(r => setTimeout(r, 30));                       // let the button repaint
-    const d = await Promise.race([fontsReady, new Promise(r => setTimeout(() => r({plex: null, head: null}), 6000))]);
-    try { await buildPDF(d); }
-    catch (e1) { console.warn('Custom fonts failed, retrying with built-in fonts', e1); await buildPDF({plex: null, head: null}); }
+    if (!window.jspdf || !window.html2canvas) throw new Error('PDF libraries did not load. Please refresh the page and try again.');
+    await (document.fonts && document.fonts.ready);
+    window.scrollTo(0, 0);
+    host = document.createElement('div'); host.className = 'pdfhost'; document.body.appendChild(host);
+    const sheets = paginate(host);
+    await new Promise(r => setTimeout(r, 50));
+    const doc = new window.jspdf.jsPDF({unit: 'mm', format: 'a4', orientation: 'portrait', compress: true});
+    for (let i = 0; i < sheets.length; i++) {
+      const cv = await html2canvas(sheets[i], {scale: 3, backgroundColor: '#ffffff', logging: false, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 1200});
+      if (i) doc.addPage();
+      doc.addImage(cv.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+    }
+    const clean = s => T(s).replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').replace(/-+/g, '-') || 'Quotation';
+    doc.save(`Quotation_${clean(q.no)}_${clean(cust.name)}.pdf`);
     const mt = T(q.no).match(/^(.*?)(\d+)$/);                        // suggest next number
-    if (mt) { q.no = mt[1] + String(+mt[2] + 1).padStart(mt[2].length, '0'); save('qg_next', q.no); document.querySelector('[data-q=no]').value = q.no; renderPreview(); }
+    if (mt) { q.no = mt[1] + String(+mt[2] + 1).padStart(mt[2].length, '0'); save('qg_next', q.no); document.querySelector('[data-q=no]').value = q.no; }
   } catch (err) {
     console.error(err); box.hidden = false; box.innerHTML = `<b>Could not generate the PDF.</b><ul><li>${esc(err.message || err)}</li></ul>`;
-  } finally { btn.disabled = false; btn.textContent = 'GENERATE QUOTATION PDF'; }
+  } finally {
+    if (host) host.remove();
+    busy.hidden = true; btn.disabled = false; window.scrollTo(0, y0); renderPreview();
+  }
 }
 $('#generate').onclick = generatePDF;
 
