@@ -25,12 +25,12 @@ function model(sym) {
   const cols = [
     ['no', '#', 'c'], ['desc', 'Description', 'l'], ['thread', 'Thread Type', 'l'],
     showLen && ['len', 'Thread Length', 'c'], ['mat', 'Material Type', 'c'],
-    showProc && ['proc', 'Process', 'c'], ['qty', 'Quantity', 'c'], ['price', 'Unit Price', 'c'], ['total', 'Total Amount', 'c']
+    showProc && ['proc', 'Process', 'c'], ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'], ['total', 'Total Amount\u00A0(₹)', 'c']
   ].filter(Boolean).map(([k, h, a]) => ({k, h, a}));
   const cell = (r, k, i) => k === 'no' ? String(i + 1)
     : k === 'qty' ? (isFinite(r.qty) ? String(r.qty) : '')
-    : k === 'price' ? (isFinite(r.price) ? sym + fmt(r.price) : '')
-    : k === 'total' ? (isFinite(r.total) ? sym + fmt(r.total) : '') : r[k];
+    : k === 'price' ? (isFinite(r.price) ? fmt(r.price) : '')
+    : k === 'total' ? (isFinite(r.total) ? fmt(r.total) : '') : r[k];
   const total = rows.reduce((s, r) => s + (isFinite(r.total) ? r.total : 0), 0);
   const c = company;
   const coLines = [
@@ -80,7 +80,7 @@ function paginate(host) {
     tbody.insertAdjacentHTML('beforeend', rowHTML(r, i));
     if (bd.offsetHeight > LIMIT && tbody.rows.length > 1) { const tr = tbody.lastElementChild; tr.remove(); newSheet(false, true); tbody.appendChild(tr); }
   });
-  place(`<div class="total"><span>TOTAL AMOUNT</span><b>₹ ${fmt(m.total)}</b></div>`);
+  place(`<div class="total"><span>TOTAL AMOUNT (₹)</span><b>${fmt(m.total)}</b></div>`);
   if (m.notes.length) place(`<div class="notes"><div class="lbl">NOTES</div><ol>${m.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol></div>`);
   if (sheets.length > 1) sheets.forEach((s, i) => s.querySelector('.pg').textContent = `Page ${i + 1} of ${sheets.length}`);
   return sheets;
