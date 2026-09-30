@@ -55,7 +55,7 @@ function paginate(host) {
   const headerHTML = `
   <div class="hd">
     <div class="co">${company.logo ? `<img src="${company.logo.data}" alt="">` : ''}
-      <div><h3>${esc(T(company.name) || 'Company Name')}</h3>${m.coLines.map(l => `<p>${esc(l)}</p>`).join('')}</div></div>
+      <div><h3>${esc(T(company.name) || 'Company Name')}</h3>${T(company.byline) ? `<div class="by">${esc(T(company.byline))}</div>` : ''}${m.coLines.map(l => `<p>${esc(l)}</p>`).join('')}</div></div>
     <div class="qt"><i></i><h4>QUOTATION</h4>
       <p><span>Quote No:</span> <b>${esc(T(q.no))}</b></p><p><span>Date:</span> <b>${esc(fmtDate(q.date))}</b></p></div>
   </div>
