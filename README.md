@@ -9,6 +9,6 @@ Client-side web app that creates professional A4 quotation PDFs. No backend, no 
 
 ## Notes
 - Company details and logo are entered in the app and saved in the browser (localStorage); nothing is hard-coded.
-- The PDF loads IBM Plex Sans from jsDelivr when you click Generate, so the rupee sign prints correctly. If offline, it falls back to Helvetica and "Rs.".
-- Libraries (jsPDF, jspdf-autotable) load from cdnjs. To work fully offline, download them into the repo and change the `<script>` tags.
+- The PDF is captured directly from the live preview (html2canvas + jsPDF), so the download is identical to what you see. Long quotations are split across A4 pages automatically, with the table header repeated.
+- Libraries (html2canvas, jsPDF) load from cdnjs. To work fully offline, download them into the repo and change the `<script>` tags.
 - GST is never added or calculated. It appears only if typed into Notes.
