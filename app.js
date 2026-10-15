@@ -3,32 +3,37 @@ const $ = s => document.querySelector(s);
 const T = v => (v == null ? '' : String(v)).trim();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = n => new Intl.NumberFormat('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(n);
-/* Money fields are typed by the user (never calculated). Plain numbers get Indian formatting; anything else is shown as typed. */
-const money = v => { const t = T(v), n = Number(t.replace(/,/g, '')); return t && /^[\d,]*\.?\d+$/.test(t) && isFinite(n) ? fmt(n) : t; };
+/* Pull the number out of free text: "1 set" -> 1, "2 bags" -> 2, "1,000 Nos" -> 1000, "12.50/pc" -> 12.5.
+   Quantity with no number (e.g. "-") counts as 0. */
+const numIn = v => { const m = T(v).replace(/,/g, '').match(/\d*\.?\d+/); return m ? parseFloat(m[0]) : NaN; };
+const qtyNum = v => { const n = numIn(v); return isFinite(n) ? n : 0; };
+const itemTotal = it => { const t = lineTotal(it); return isFinite(t) ? '₹ ' + fmt(t) : '—'; };
+const lineTotal = it => { const p = numIn(it.price); return isFinite(p) ? qtyNum(it.qty) * p : NaN; };
 const fmtDate = d => d ? new Date(d + 'T00:00').toLocaleDateString('en-GB', {day: 'numeric', month: 'long', year: 'numeric'}) : '';
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 
-const newItem = () => ({desc: '', thread: '', len: '', mat: '', proc: '', qty: '', price: '', total: ''});
+const newItem = () => ({desc: '', thread: '', len: '', mat: '', proc: '', qty: '', price: ''});
 let company = load('qg_company', {name: '', address: '', gstin: '', email: '', phone: '', website: '', other: '', logo: null});
 const now = new Date();
 let cust = {name: '', address: '', gstin: '', email: '', contact: ''};
-let q = {no: load('qg_next', `Q-${now.getFullYear()}-001`), date: now.toLocaleDateString('en-CA'), notes: '', total: ''};
+let q = {no: load('qg_next', `Q-${now.getFullYear()}-001`), date: now.toLocaleDateString('en-CA'), notes: ''};
 let items = [newItem()];
 
 /* ---------- Shared model (used by preview AND pdf) ---------- */
 function model(sym) {
   const rows = items.map(i => ({desc: T(i.desc), thread: T(i.thread), len: T(i.len), mat: T(i.mat), proc: T(i.proc),
-    qty: T(i.qty), price: T(i.price), total: T(i.total)}));
+    qty: T(i.qty), price: numIn(i.price), total: lineTotal(i)}));
   const has = k => rows.some(r => r[k]);          // optional columns appear only when at least one item fills them
   const cols = [
     ['no', '#', 'c'], ['desc', 'Description', 'l'], has('thread') && ['thread', 'Thread Type', 'l'],
     has('len') && ['len', 'Thread Length', 'c'], has('mat') && ['mat', 'Material Type', 'c'],
     has('proc') && ['proc', 'Process', 'c'], ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'],
-    has('total') && ['total', 'Total Amount\u00A0(₹)', 'c']
+    ['total', 'Total Amount\u00A0(₹)', 'c']
   ].filter(Boolean).map(([k, h, a]) => ({k, h, a}));
-  const cell = (r, k, i) => k === 'no' ? String(i + 1) : (k === 'price' || k === 'total') ? money(r[k]) : r[k];
-  const total = money(q.total);                   // grand total is entered manually
+  const cell = (r, k, i) => k === 'no' ? String(i + 1)
+    : (k === 'price' || k === 'total') ? (isFinite(r[k]) ? fmt(r[k]) : '') : r[k];
+  const total = rows.reduce((s, r) => s + (isFinite(r.total) ? r.total : 0), 0);
   const c = company;
   const coLines = [
     ...T(c.address).split('\n').map(T).filter(Boolean),
@@ -77,7 +82,7 @@ function paginate(host) {
     tbody.insertAdjacentHTML('beforeend', rowHTML(r, i));
     if (bd.offsetHeight > LIMIT && tbody.rows.length > 1) { const tr = tbody.lastElementChild; tr.remove(); newSheet(false, true); tbody.appendChild(tr); }
   });
-  if (m.total) place(`<div class="total"><span>TOTAL AMOUNT (₹)</span><b>${esc(m.total)}*</b></div>`);
+  place(`<div class="total"><span>TOTAL AMOUNT (₹)</span><b>${fmt(m.total)}*</b></div>`);
   if (m.notes.length) place(`<div class="notes"><div class="lbl">NOTES</div><ol>${m.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol></div>`);
   if (sheets.length > 1) sheets.forEach((s, i) => s.querySelector('.pg').textContent = `Page ${i + 1} of ${sheets.length}`);
   return sheets;
@@ -110,9 +115,9 @@ function renderItems() {
       <label>Thread Length<input data-i="${i}" data-f="len" value="${esc(it.len)}" placeholder="25 mm"></label>
       <label>Material Type<input data-i="${i}" data-f="mat" value="${esc(it.mat)}" placeholder="EN8"></label>
       <label>Process<input data-i="${i}" data-f="proc" list="procs" value="${esc(it.proc)}"></label>
-      <label>Quantity <b aria-hidden="true">*</b><input data-i="${i}" data-f="qty" value="${esc(it.qty)}" placeholder="1000 Nos" required aria-required="true"></label>
+      <label>Quantity <b aria-hidden="true">*</b><input data-i="${i}" data-f="qty" value="${esc(it.qty)}" placeholder="1 set, 2 bags, -" required aria-required="true"></label>
       <label>Unit Price (₹) <b aria-hidden="true">*</b><input inputmode="decimal" data-i="${i}" data-f="price" value="${esc(it.price)}" placeholder="12.50" required aria-required="true"></label>
-      <label>Total Amount (₹)<input inputmode="decimal" data-i="${i}" data-f="total" value="${esc(it.total)}" placeholder="Optional"></label>
+      <label>Total Amount (₹)<div class="tot" id="t${i}" aria-live="polite">${itemTotal(it)}</div></label>
     </div>
   </div>`).join('') + `<datalist id="procs"><option>Grinding</option><option>Threading</option><option>Grinding &amp; Threading</option></datalist>`;
 }
@@ -122,7 +127,11 @@ document.addEventListener('input', e => {
   if (t.dataset.c) { company[t.dataset.c] = t.value; save('qg_company', company); }
   else if (t.dataset.k) cust[t.dataset.k] = t.value;
   else if (t.dataset.q) q[t.dataset.q] = t.value;
-  else if (t.dataset.f) { items[t.dataset.i][t.dataset.f] = t.value; if (t.value.trim()) t.removeAttribute('aria-invalid'); }
+  else if (t.dataset.f) {
+    const it = items[t.dataset.i]; it[t.dataset.f] = t.value;
+    if (t.value.trim()) t.removeAttribute('aria-invalid');
+    const el = $('#t' + t.dataset.i); if (el) el.textContent = itemTotal(it);
+  }
   else return;
   renderPreview();
 });
@@ -163,9 +172,9 @@ function syncLogo() {
 /* ---------- Validation ---------- */
 function validate() {
   const errs = [];                                // only Description, Quantity and Unit Price are required
-  const need = [['desc', 'a description'], ['qty', 'a quantity'], ['price', 'a unit price']];
+  const need = [['desc', 'a description'], ['qty', 'a quantity (use - for none)'], ['price', 'a valid unit price']];
   items.forEach((it, i) => need.forEach(([f, what]) => {
-    const bad = !T(it[f]), el = document.querySelector(`[data-i="${i}"][data-f="${f}"]`);
+    const bad = f === 'price' ? !isFinite(numIn(it.price)) : !T(it[f]), el = document.querySelector(`[data-i="${i}"][data-f="${f}"]`);
     if (el) bad ? el.setAttribute('aria-invalid', 'true') : el.removeAttribute('aria-invalid');
     if (bad) errs.push(`Please enter ${what} for item ${i + 1}.`);
   }));
