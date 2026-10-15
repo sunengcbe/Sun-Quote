@@ -17,7 +17,7 @@
 <main class="layout">
   <section class="form">
     <div id="errors" class="errors" role="alert" tabindex="-1" hidden></div>
-    <p class="req-note">Fields marked <b aria-hidden="true">*</b> are required (Description, Quantity, Unit Price).</p>
+    <p class="req-note">Fields marked <b aria-hidden="true">*</b> are required (Description, Quantity, Unit Price). Totals are calculated automatically.</p>
 
     <details class="card">
       <summary>Company Details <em>saved in this browser</em></summary>
@@ -59,14 +59,6 @@
     <div class="card">
       <div class="row"><h2>Items</h2><button type="button" class="btn-dark" id="addItem">+ Add Item</button></div>
       <div id="items"></div>
-    </div>
-
-    <div class="card">
-      <h2>Total</h2>
-      <label>Total Amount (₹)
-        <input data-q="total" inputmode="decimal" placeholder="e.g. 1,25,000.00" aria-describedby="totalHelp">
-      </label>
-      <p id="totalHelp" class="help">Entered manually, not calculated. Printed with an asterisk (*) &mdash; explain it in the Notes below (e.g. &ldquo;* Prices exclusive of GST&rdquo;). Leave blank to hide the total.</p>
     </div>
 
     <div class="card">
