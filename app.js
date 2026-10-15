@@ -2,36 +2,33 @@
 const $ = s => document.querySelector(s);
 const T = v => (v == null ? '' : String(v)).trim();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const num = v => { const n = parseFloat(v); return isFinite(n) ? n : NaN; };
 const fmt = n => new Intl.NumberFormat('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(n);
+/* Money fields are typed by the user (never calculated). Plain numbers get Indian formatting; anything else is shown as typed. */
+const money = v => { const t = T(v), n = Number(t.replace(/,/g, '')); return t && /^[\d,]*\.?\d+$/.test(t) && isFinite(n) ? fmt(n) : t; };
 const fmtDate = d => d ? new Date(d + 'T00:00').toLocaleDateString('en-GB', {day: 'numeric', month: 'long', year: 'numeric'}) : '';
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 
-const newItem = () => ({desc: '', thread: '', len: '', mat: '', proc: '', qty: '', price: ''});
+const newItem = () => ({desc: '', thread: '', len: '', mat: '', proc: '', qty: '', price: '', total: ''});
 let company = load('qg_company', {name: '', address: '', gstin: '', email: '', phone: '', website: '', other: '', logo: null});
 const now = new Date();
 let cust = {name: '', address: '', gstin: '', email: '', contact: ''};
-let q = {no: load('qg_next', `Q-${now.getFullYear()}-001`), date: now.toLocaleDateString('en-CA'), notes: ''};
+let q = {no: load('qg_next', `Q-${now.getFullYear()}-001`), date: now.toLocaleDateString('en-CA'), notes: '', total: ''};
 let items = [newItem()];
 
 /* ---------- Shared model (used by preview AND pdf) ---------- */
 function model(sym) {
-  const rows = items.map(i => {
-    const qty = num(i.qty), price = num(i.price);
-    return {desc: T(i.desc), thread: T(i.thread), len: T(i.len), mat: T(i.mat), proc: T(i.proc), qty, price, total: qty * price};
-  });
-  const showLen = rows.some(r => r.len), showProc = rows.some(r => r.proc);
+  const rows = items.map(i => ({desc: T(i.desc), thread: T(i.thread), len: T(i.len), mat: T(i.mat), proc: T(i.proc),
+    qty: T(i.qty), price: T(i.price), total: T(i.total)}));
+  const has = k => rows.some(r => r[k]);          // optional columns appear only when at least one item fills them
   const cols = [
-    ['no', '#', 'c'], ['desc', 'Description', 'l'], ['thread', 'Thread Type', 'l'],
-    showLen && ['len', 'Thread Length', 'c'], ['mat', 'Material Type', 'c'],
-    showProc && ['proc', 'Process', 'c'], ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'], ['total', 'Total Amount\u00A0(₹)', 'c']
+    ['no', '#', 'c'], ['desc', 'Description', 'l'], has('thread') && ['thread', 'Thread Type', 'l'],
+    has('len') && ['len', 'Thread Length', 'c'], has('mat') && ['mat', 'Material Type', 'c'],
+    has('proc') && ['proc', 'Process', 'c'], ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'],
+    has('total') && ['total', 'Total Amount\u00A0(₹)', 'c']
   ].filter(Boolean).map(([k, h, a]) => ({k, h, a}));
-  const cell = (r, k, i) => k === 'no' ? String(i + 1)
-    : k === 'qty' ? (isFinite(r.qty) ? String(r.qty) : '')
-    : k === 'price' ? (isFinite(r.price) ? fmt(r.price) : '')
-    : k === 'total' ? (isFinite(r.total) ? fmt(r.total) : '') : r[k];
-  const total = rows.reduce((s, r) => s + (isFinite(r.total) ? r.total : 0), 0);
+  const cell = (r, k, i) => k === 'no' ? String(i + 1) : (k === 'price' || k === 'total') ? money(r[k]) : r[k];
+  const total = money(q.total);                   // grand total is entered manually
   const c = company;
   const coLines = [
     ...T(c.address).split('\n').map(T).filter(Boolean),
@@ -57,12 +54,12 @@ function paginate(host) {
     <div class="co">${company.logo ? `<img src="${company.logo.data}" alt="">` : ''}
       <div><h3>${esc(T(company.name) || 'Company Name')}</h3>${T(company.byline) ? `<div class="by">${esc(T(company.byline))}</div>` : ''}${m.coLines.map(l => `<p>${esc(l)}</p>`).join('')}</div></div>
     <div class="qt"><i></i><h4>QUOTATION</h4>
-      <p><span>Quote No:</span> <b>${esc(T(q.no))}</b></p><p><span>Date:</span> <b>${esc(fmtDate(q.date))}</b></p></div>
+      ${T(q.no) ? `<p><span>Quote No:</span> <b>${esc(T(q.no))}</b></p>` : ''}${q.date ? `<p><span>Date:</span> <b>${esc(fmtDate(q.date))}</b></p>` : ''}</div>
   </div>
-  <div class="cu">
-    <div><div class="lbl">TO</div><b>${esc(T(cust.name) || 'Customer Name')}</b>${m.custAddr.map(l => `<p>${esc(l)}</p>`).join('')}</div>
+  ${T(cust.name) || m.custAddr.length || m.custRight.length ? `<div class="cu">
+    <div><div class="lbl">TO</div>${T(cust.name) ? `<b>${esc(T(cust.name))}</b>` : ''}${m.custAddr.map(l => `<p>${esc(l)}</p>`).join('')}</div>
     <div>${m.custRight.map(([l, v]) => `<p><span>${l}:</span> ${esc(v)}</p>`).join('')}</div>
-  </div>`;
+  </div>` : '<div class="cu"></div>'}`;
   let bd, tbody;
   const newSheet = (first, withTable) => {
     const s = document.createElement('div'); s.className = 'sheet';
@@ -80,7 +77,7 @@ function paginate(host) {
     tbody.insertAdjacentHTML('beforeend', rowHTML(r, i));
     if (bd.offsetHeight > LIMIT && tbody.rows.length > 1) { const tr = tbody.lastElementChild; tr.remove(); newSheet(false, true); tbody.appendChild(tr); }
   });
-  place(`<div class="total"><span>TOTAL AMOUNT (₹)</span><b>${fmt(m.total)}</b></div>`);
+  if (m.total) place(`<div class="total"><span>TOTAL AMOUNT (₹)</span><b>${esc(m.total)}*</b></div>`);
   if (m.notes.length) place(`<div class="notes"><div class="lbl">NOTES</div><ol>${m.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol></div>`);
   if (sheets.length > 1) sheets.forEach((s, i) => s.querySelector('.pg').textContent = `Page ${i + 1} of ${sheets.length}`);
   return sheets;
@@ -103,30 +100,29 @@ function renderItems() {
   $('#items').innerHTML = items.map((it, i) => `
   <div class="item">
     <div class="item-head"><span>ITEM ${i + 1}</span><div>
-      <button type="button" data-a="up" data-i="${i}" ${i === 0 ? 'disabled' : ''}>&uarr;</button>
-      <button type="button" data-a="down" data-i="${i}" ${i === items.length - 1 ? 'disabled' : ''}>&darr;</button>
+      <button type="button" data-a="up" data-i="${i}" aria-label="Move item ${i + 1} up" ${i === 0 ? 'disabled' : ''}><span aria-hidden="true">&uarr;</span></button>
+      <button type="button" data-a="down" data-i="${i}" aria-label="Move item ${i + 1} down" ${i === items.length - 1 ? 'disabled' : ''}><span aria-hidden="true">&darr;</span></button>
       <button type="button" data-a="dup" data-i="${i}">Duplicate</button>
       <button type="button" class="rm" data-a="rm" data-i="${i}" ${items.length === 1 ? 'disabled' : ''}>Remove</button></div></div>
     <div class="grid3">
-      <label>Description <b>*</b><input data-i="${i}" data-f="desc" value="${esc(it.desc)}"></label>
-      <label>Thread Type <b>*</b><input data-i="${i}" data-f="thread" value="${esc(it.thread)}" placeholder="M10"></label>
+      <label>Description <b aria-hidden="true">*</b><input data-i="${i}" data-f="desc" value="${esc(it.desc)}" required aria-required="true"></label>
+      <label>Thread Type<input data-i="${i}" data-f="thread" value="${esc(it.thread)}" placeholder="M10"></label>
       <label>Thread Length<input data-i="${i}" data-f="len" value="${esc(it.len)}" placeholder="25 mm"></label>
-      <label>Material Type <b>*</b><input data-i="${i}" data-f="mat" value="${esc(it.mat)}" placeholder="EN8"></label>
+      <label>Material Type<input data-i="${i}" data-f="mat" value="${esc(it.mat)}" placeholder="EN8"></label>
       <label>Process<input data-i="${i}" data-f="proc" list="procs" value="${esc(it.proc)}"></label>
-      <label>Quantity <b>*</b><input type="number" min="0" step="any" data-i="${i}" data-f="qty" value="${esc(it.qty)}"></label>
-      <label>Unit Price (₹) <b>*</b><input type="number" min="0" step="any" data-i="${i}" data-f="price" value="${esc(it.price)}"></label>
-      <label>Total<div class="tot" id="t${i}">${itemTotal(it)}</div></label>
+      <label>Quantity <b aria-hidden="true">*</b><input data-i="${i}" data-f="qty" value="${esc(it.qty)}" placeholder="1000 Nos" required aria-required="true"></label>
+      <label>Unit Price (₹) <b aria-hidden="true">*</b><input inputmode="decimal" data-i="${i}" data-f="price" value="${esc(it.price)}" placeholder="12.50" required aria-required="true"></label>
+      <label>Total Amount (₹)<input inputmode="decimal" data-i="${i}" data-f="total" value="${esc(it.total)}" placeholder="Optional"></label>
     </div>
   </div>`).join('') + `<datalist id="procs"><option>Grinding</option><option>Threading</option><option>Grinding &amp; Threading</option></datalist>`;
 }
-const itemTotal = it => { const t = num(it.qty) * num(it.price); return isFinite(t) ? '₹ ' + fmt(t) : '—'; };
 
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.c) { company[t.dataset.c] = t.value; save('qg_company', company); }
   else if (t.dataset.k) cust[t.dataset.k] = t.value;
   else if (t.dataset.q) q[t.dataset.q] = t.value;
-  else if (t.dataset.f) { const it = items[t.dataset.i]; it[t.dataset.f] = t.value; const el = $('#t' + t.dataset.i); if (el) el.textContent = itemTotal(it); }
+  else if (t.dataset.f) { items[t.dataset.i][t.dataset.f] = t.value; if (t.value.trim()) t.removeAttribute('aria-invalid'); }
   else return;
   renderPreview();
 });
@@ -166,24 +162,20 @@ function syncLogo() {
 
 /* ---------- Validation ---------- */
 function validate() {
-  const errs = [];
-  if (!T(cust.name)) errs.push('Please enter the customer company name.');
-  if (!q.date) errs.push('Please select a date.');
-  items.forEach((it, i) => {
-    const n = i + 1;
-    if (!T(it.desc)) errs.push(`Please enter a description for item ${n}.`);
-    if (!T(it.thread)) errs.push(`Please enter a thread type for item ${n}.`);
-    if (!T(it.mat)) errs.push(`Please enter a material type for item ${n}.`);
-    if (!(num(it.qty) > 0)) errs.push(`Please enter a valid quantity for item ${n}.`);
-    if (!(num(it.price) >= 0) || T(it.price) === '') errs.push(`Please enter a valid unit price for item ${n}.`);
-  });
+  const errs = [];                                // only Description, Quantity and Unit Price are required
+  const need = [['desc', 'a description'], ['qty', 'a quantity'], ['price', 'a unit price']];
+  items.forEach((it, i) => need.forEach(([f, what]) => {
+    const bad = !T(it[f]), el = document.querySelector(`[data-i="${i}"][data-f="${f}"]`);
+    if (el) bad ? el.setAttribute('aria-invalid', 'true') : el.removeAttribute('aria-invalid');
+    if (bad) errs.push(`Please enter ${what} for item ${i + 1}.`);
+  }));
   return errs;
 }
 
 /* ---------- PDF: the sheets shown in the preview are captured 1:1 ---------- */
 async function generatePDF() {
   const errs = validate(), box = $('#errors');
-  if (errs.length) { box.hidden = false; box.innerHTML = `<b>Please fix the following:</b><ul>${errs.map(e => `<li>${esc(e)}</li>`).join('')}</ul>`; box.scrollIntoView({behavior: 'smooth', block: 'center'}); return; }
+  if (errs.length) { box.hidden = false; box.innerHTML = `<b>Please fix the following:</b><ul>${errs.map(e => `<li>${esc(e)}</li>`).join('')}</ul>`; box.scrollIntoView({behavior: 'smooth', block: 'center'}); const f = document.querySelector('[aria-invalid="true"]'); if (f) f.focus({preventScroll: true}); return; }
   box.hidden = true;
   const btn = $('#generate'), busy = $('#busy'); btn.disabled = true; busy.hidden = false;
   const y0 = window.scrollY; let host;
@@ -201,7 +193,7 @@ async function generatePDF() {
       doc.addImage(cv.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
     }
     const clean = s => T(s).replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').replace(/-+/g, '-') || 'Quotation';
-    doc.save(`Quotation_${clean(q.no)}_${clean(cust.name)}.pdf`);
+    doc.save(['Quotation', T(q.no) && clean(q.no), T(cust.name) && clean(cust.name)].filter(Boolean).join('_') + '.pdf');
     const mt = T(q.no).match(/^(.*?)(\d+)$/);                        // suggest next number
     if (mt) { q.no = mt[1] + String(+mt[2] + 1).padStart(mt[2].length, '0'); save('qg_next', q.no); document.querySelector('[data-q=no]').value = q.no; }
   } catch (err) {
