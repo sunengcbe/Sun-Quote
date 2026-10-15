@@ -28,7 +28,8 @@ button{font:inherit;cursor:pointer;border-radius:2px}
 .item-head button{background:#fff;border:1px solid #cfcfcf;padding:4px 9px;font-size:12px;color:var(--dark)}
 .item-head button:hover{border-color:var(--gold)}.item-head .rm{color:#111;border-color:#111}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.tot{margin-top:4px;padding:9px 10px;background:#fff;border:1px dashed #cfcfcf;font-weight:600;color:var(--black)}
+.help,.req-note{margin:6px 0 0;font-size:12px;color:var(--mid)}.req-note{margin:0 0 12px}.req-note b{color:var(--rich)}
+input[aria-invalid="true"]{border-color:#b3261e;box-shadow:inset 3px 0 0 #b3261e}
 .generate{width:100%;padding:16px;background:var(--gold);color:var(--black);border:0;font-weight:700;letter-spacing:.14em;font-size:14px}
 .generate:hover{background:var(--rich)}.generate:disabled{opacity:.6;cursor:wait}
 .errors{background:#fff;border:1px solid var(--black);border-left:5px solid var(--gold);padding:12px 16px;margin-bottom:16px;font-size:13px}
