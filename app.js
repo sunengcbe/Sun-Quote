@@ -28,7 +28,7 @@ function model(sym) {
   const cols = [
     ['no', '#', 'c'], ['desc', 'Description', 'l'], has('thread') && ['thread', 'Thread Type', 'l'],
     has('len') && ['len', 'Thread Length', 'c'], has('mat') && ['mat', 'Material Type', 'c'],
-    has('proc') && ['proc', 'Process', 'c'], has('qty') && ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'],
+    has('proc') && ['proc', 'Process', 'c wrap'], has('qty') && ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'],
     has('qty') && ['total', 'Total Amount\u00A0(₹)', 'c']   // Quantity & line-total columns only when some item has a quantity
   ].filter(Boolean).map(([k, h, a]) => ({k, h, a}));
   const cell = (r, k, i) => k === 'no' ? String(i + 1)
