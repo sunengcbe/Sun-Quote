@@ -16,9 +16,15 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; 
 const newItem = () => ({desc: '', thread: '', len: '', mat: '', proc: '', qty: '', price: ''});
 let company = load('qg_company', {name: '', address: '', gstin: '', email: '', phone: '', website: '', other: '', logo: null});
 const now = new Date();
-let cust = {name: '', address: '', gstin: '', email: '', contact: ''};
-let q = {no: load('qg_next', `Q-${now.getFullYear()}-001`), date: now.toLocaleDateString('en-CA'), notes: ''};
-let items = [newItem()];
+const blankCust = () => ({name: '', address: '', gstin: '', email: '', contact: ''});
+const blankQ = () => ({no: load('qg_next', `Q-${now.getFullYear()}-001`), date: now.toLocaleDateString('en-CA'), notes: ''});
+/* Draft: customer, quotation details, items and notes are kept in this browser so a refresh doesn't lose them.
+   "Clear Form" (or starting fresh) removes the draft. */
+const draft = load('qg_draft', null);
+let cust = {...blankCust(), ...(draft?.cust || {})};
+let q = {...blankQ(), ...(draft?.q || {})};
+let items = draft?.items?.length ? draft.items.map(it => ({...newItem(), ...it})) : [newItem()];
+const saveDraft = () => save('qg_draft', {cust, q, items});
 
 /* ---------- Shared model (used by preview AND pdf) ---------- */
 function model(sym) {
@@ -43,7 +49,7 @@ function model(sym) {
   ].filter(Boolean);
   const custRight = [['Contact', T(cust.contact)], ['Email', T(cust.email)], ['GSTIN', T(cust.gstin)]].filter(r => r[1]);
   const notes = q.notes.split('\n').map(T).filter(Boolean).map(n => n.replace(/^\d+[.)]\s*/, ''));
-  return {rows, cols, cell, total, coLines, custRight, notes, custAddr: T(cust.address).split('\n').map(T).filter(Boolean)};
+  return {rows, cols, cell, total, showTotal: has('qty'), coLines, custRight, notes, custAddr: T(cust.address).split('\n').map(T).filter(Boolean)};
 }
 
 /* ---------- Paginated A4 sheets: used by BOTH the live preview and the PDF ---------- */
@@ -84,13 +90,14 @@ function paginate(host) {
     tbody.insertAdjacentHTML('beforeend', rowHTML(r, i));
     if (bd.offsetHeight > LIMIT && tbody.rows.length > 1) { const tr = tbody.lastElementChild; tr.remove(); newSheet(false, true); tbody.appendChild(tr); }
   });
-  place(`<div class="total"><span>TOTAL AMOUNT (₹)</span><b>${fmt(m.total)}*</b></div>`);
+  if (m.showTotal) place(`<div class="total"><span>TOTAL AMOUNT (₹)</span><b>${fmt(m.total)}*</b></div>`);   // only when some item has a quantity
   if (m.notes.length) place(`<div class="notes"><div class="lbl">NOTES</div><ol>${m.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ol></div>`);
   if (sheets.length > 1) sheets.forEach((s, i) => s.querySelector('.pg').textContent = `Page ${i + 1} of ${sheets.length}`);
   return sheets;
 }
 let pvFrame;
 function renderPreview() {
+  saveDraft();                                   // every change to the form passes through here
   cancelAnimationFrame(pvFrame);
   pvFrame = requestAnimationFrame(() => { paginate($('#pages')); fitPreview(); });
 }
@@ -221,5 +228,15 @@ $('#generate').onclick = generatePDF;
 
 /* ---------- Init ---------- */
 document.querySelectorAll('[data-c]').forEach(el => el.value = company[el.dataset.c] || '');
-document.querySelectorAll('[data-q]').forEach(el => el.value = q[el.dataset.q]);
+function fillForm() {
+  document.querySelectorAll('[data-k]').forEach(el => el.value = cust[el.dataset.k] || '');
+  document.querySelectorAll('[data-q]').forEach(el => el.value = q[el.dataset.q] || '');
+}
+$('#clearForm').onclick = () => {
+  if (!confirm('Clear the customer, items and notes? Company details are kept.')) return;
+  cust = blankCust(); q = blankQ(); items = [newItem()];
+  try { localStorage.removeItem('qg_draft'); } catch {}
+  $('#errors').hidden = true; fillForm(); renderItems(); growAll(); renderPreview();
+};
+fillForm();
 syncLogo(); renderItems(); growAll(); renderPreview();
