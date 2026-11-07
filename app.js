@@ -56,8 +56,10 @@ function paginate(host) {
   const rowHTML = (r, i) => `<tr>${m.cols.map(c => `<td class="${c.a}">${esc(m.cell(r, c.k, i))}</td>`).join('')}</tr>`;
   const headerHTML = `
   <div class="hd">
-    <div class="co">${company.logo ? `<img src="${company.logo.data}" alt="">` : ''}
-      <div><h3>${esc(T(company.name) || 'Company Name')}</h3>${T(company.byline) ? `<div class="by">${esc(T(company.byline))}</div>` : ''}${m.coLines.map(l => `<p>${esc(l)}</p>`).join('')}</div></div>
+    <div class="co">
+      <div class="co-top">${company.logo ? `<img src="${company.logo.data}" alt="">` : ''}
+        <div><h3>${esc(T(company.name) || 'Company Name')}</h3>${T(company.byline) ? `<div class="by">${esc(T(company.byline))}</div>` : ''}</div></div>
+      ${m.coLines.length ? `<div class="co-info">${m.coLines.map(l => `<p>${esc(l)}</p>`).join('')}</div>` : ''}</div>
     <div class="qt"><i></i><h4>QUOTATION</h4>
       ${T(q.no) ? `<p><span>Quote No:</span> <b>${esc(T(q.no))}</b></p>` : ''}${q.date ? `<p><span>Date:</span> <b>${esc(fmtDate(q.date))}</b></p>` : ''}</div>
   </div>
