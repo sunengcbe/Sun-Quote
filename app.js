@@ -4,9 +4,9 @@ const T = v => (v == null ? '' : String(v)).trim();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = n => new Intl.NumberFormat('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(n);
 /* Pull the number out of free text: "1 set" -> 1, "2 bags" -> 2, "1,000 Nos" -> 1000, "12.50/pc" -> 12.5.
-   Quantity with no number (e.g. "-") counts as 0. */
+   Blank quantity = price is for 1 Nos. Quantity with no number (e.g. "-") counts as 0. */
 const numIn = v => { const m = T(v).replace(/,/g, '').match(/\d*\.?\d+/); return m ? parseFloat(m[0]) : NaN; };
-const qtyNum = v => { const n = numIn(v); return isFinite(n) ? n : 0; };
+const qtyNum = v => { if (!T(v)) return 1; const n = numIn(v); return isFinite(n) ? n : 0; };
 const itemTotal = it => { const t = lineTotal(it); return isFinite(t) ? '₹ ' + fmt(t) : '—'; };
 const lineTotal = it => { const p = numIn(it.price); return isFinite(p) ? qtyNum(it.qty) * p : NaN; };
 const fmtDate = d => d ? new Date(d + 'T00:00').toLocaleDateString('en-GB', {day: 'numeric', month: 'long', year: 'numeric'}) : '';
@@ -28,8 +28,8 @@ function model(sym) {
   const cols = [
     ['no', '#', 'c'], ['desc', 'Description', 'l'], has('thread') && ['thread', 'Thread Type', 'l'],
     has('len') && ['len', 'Thread Length', 'c'], has('mat') && ['mat', 'Material Type', 'c'],
-    has('proc') && ['proc', 'Process', 'c'], ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'],
-    ['total', 'Total Amount\u00A0(₹)', 'c']
+    has('proc') && ['proc', 'Process', 'c'], has('qty') && ['qty', 'Quantity', 'c'], ['price', 'Unit Price\u00A0(₹)', 'c'],
+    has('qty') && ['total', 'Total Amount\u00A0(₹)', 'c']   // Quantity & line-total columns only when some item has a quantity
   ].filter(Boolean).map(([k, h, a]) => ({k, h, a}));
   const cell = (r, k, i) => k === 'no' ? String(i + 1)
     : (k === 'price' || k === 'total') ? (isFinite(r[k]) ? fmt(r[k]) : '') : r[k];
@@ -117,7 +117,7 @@ function renderItems() {
       <label>Thread Length<input data-i="${i}" data-f="len" value="${esc(it.len)}" placeholder="25 mm"></label>
       <label>Material Type<input data-i="${i}" data-f="mat" value="${esc(it.mat)}" placeholder="EN8"></label>
       <label>Process<input data-i="${i}" data-f="proc" list="procs" value="${esc(it.proc)}"></label>
-      <label>Quantity <b aria-hidden="true">*</b><input data-i="${i}" data-f="qty" value="${esc(it.qty)}" placeholder="1 set, 2 bags, -" required aria-required="true"></label>
+      <label>Quantity<input data-i="${i}" data-f="qty" value="${esc(it.qty)}" placeholder="Blank = 1 Nos"></label>
       <label>Unit Price (₹) <b aria-hidden="true">*</b><input inputmode="decimal" data-i="${i}" data-f="price" value="${esc(it.price)}" placeholder="12.50" required aria-required="true"></label>
       <label>Total Amount (₹)<div class="tot" id="t${i}" aria-live="polite">${itemTotal(it)}</div></label>
     </div>
@@ -174,7 +174,7 @@ function syncLogo() {
 /* ---------- Validation ---------- */
 function validate() {
   const errs = [];                                // only Description, Quantity and Unit Price are required
-  const need = [['desc', 'a description'], ['qty', 'a quantity (use - for none)'], ['price', 'a valid unit price']];
+  const need = [['desc', 'a description'], ['price', 'a valid unit price']];
   items.forEach((it, i) => need.forEach(([f, what]) => {
     const bad = f === 'price' ? !isFinite(numIn(it.price)) : !T(it[f]), el = document.querySelector(`[data-i="${i}"][data-f="${f}"]`);
     if (el) bad ? el.setAttribute('aria-invalid', 'true') : el.removeAttribute('aria-invalid');
