@@ -39,8 +39,8 @@ input[aria-invalid="true"]{border-color:#b3261e;box-shadow:inset 3px 0 0 #b3261e
 #pvWrap{width:100%;overflow:hidden}#pages{width:794px;display:flex;flex-direction:column;gap:16px;transform-origin:top left}
 .sheet{width:794px;height:1123px;background:#fff;padding:48px 52px 0;position:relative;overflow:hidden;color:var(--black);font-size:11px;box-shadow:0 2px 12px rgba(0,0,0,.15);flex:none}
 .sheet .hd{display:flex;justify-content:space-between;gap:20px;padding-bottom:16px;border-bottom:3px solid var(--gold)}
-.sheet .co{display:flex;gap:14px;align-items:flex-start}.sheet .co img{max-height:64px;max-width:120px}
-.sheet .co h3{margin:0 0 4px;font-size:22px;font-weight:700}.sheet .by{font-size:11.5px;font-weight:500;letter-spacing:.05em;color:var(--rich);margin:0 0 8px}.sheet .co p{margin:0;color:var(--mid);font-size:10.5px;line-height:1.5}
+.sheet .co{min-width:0}.sheet .co-top{display:flex;gap:14px;align-items:center}.sheet .co img{max-height:64px;max-width:120px}.sheet .co-info{margin-top:10px}
+.sheet .co h3{margin:0 0 4px;font-size:22px;font-weight:700}.sheet .by{font-size:11.5px;font-weight:500;letter-spacing:.05em;color:var(--rich);margin:0}.sheet .co p{margin:0;color:var(--mid);font-size:10.5px;line-height:1.5}
 .sheet .qt{text-align:right;white-space:nowrap}
 .sheet .qt i{display:block;width:150px;height:4px;background:var(--gold);margin:0 0 8px auto}
 .sheet .qt h4{margin:0 0 8px;font-size:34px;font-weight:700;letter-spacing:.02em}
