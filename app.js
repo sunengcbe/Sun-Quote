@@ -112,12 +112,12 @@ function renderItems() {
       <button type="button" data-a="dup" data-i="${i}">Duplicate</button>
       <button type="button" class="rm" data-a="rm" data-i="${i}" ${items.length === 1 ? 'disabled' : ''}>Remove</button></div></div>
     <div class="grid3">
-      <label>Description <b aria-hidden="true">*</b><input data-i="${i}" data-f="desc" value="${esc(it.desc)}" required aria-required="true"></label>
-      <label>Thread Type<input data-i="${i}" data-f="thread" value="${esc(it.thread)}" placeholder="M10"></label>
-      <label>Thread Length<input data-i="${i}" data-f="len" value="${esc(it.len)}" placeholder="25 mm"></label>
-      <label>Material Type<input data-i="${i}" data-f="mat" value="${esc(it.mat)}" placeholder="EN8"></label>
+      <label>Description <b aria-hidden="true">*</b><textarea rows="1" class="grow" data-i="${i}" data-f="desc" required aria-required="true">${esc(it.desc)}</textarea></label>
+      <label>Thread Type<textarea rows="1" class="grow" data-i="${i}" data-f="thread" placeholder="M10">${esc(it.thread)}</textarea></label>
+      <label>Thread Length<textarea rows="1" class="grow" data-i="${i}" data-f="len" placeholder="25 mm">${esc(it.len)}</textarea></label>
+      <label>Material Type<textarea rows="1" class="grow" data-i="${i}" data-f="mat" placeholder="EN8">${esc(it.mat)}</textarea></label>
       <label>Process<input data-i="${i}" data-f="proc" list="procs" value="${esc(it.proc)}"></label>
-      <label>Quantity<input data-i="${i}" data-f="qty" value="${esc(it.qty)}" placeholder="Blank = 1 Nos"></label>
+      <label>Quantity<textarea rows="1" class="grow" data-i="${i}" data-f="qty" placeholder="Blank = 1 Nos">${esc(it.qty)}</textarea></label>
       <label>Unit Price (₹) <b aria-hidden="true">*</b><input inputmode="decimal" data-i="${i}" data-f="price" value="${esc(it.price)}" placeholder="12.50" required aria-required="true"></label>
       <label>Total Amount (₹)<div class="tot" id="t${i}" aria-live="polite">${itemTotal(it)}</div></label>
     </div>
@@ -130,7 +130,7 @@ document.addEventListener('input', e => {
   else if (t.dataset.k) cust[t.dataset.k] = t.value;
   else if (t.dataset.q) q[t.dataset.q] = t.value;
   else if (t.dataset.f) {
-    const it = items[t.dataset.i]; it[t.dataset.f] = t.value;
+    const it = items[t.dataset.i]; it[t.dataset.f] = t.value; if (t.classList.contains('grow')) grow(t);
     if (t.value.trim()) t.removeAttribute('aria-invalid');
     const el = $('#t' + t.dataset.i); if (el) el.textContent = itemTotal(it);
   }
@@ -144,9 +144,12 @@ $('#items').addEventListener('click', e => {
   if (a === 'dup') items.splice(i + 1, 0, {...items[i]});
   if (a === 'up' && i > 0) [items[i - 1], items[i]] = [items[i], items[i - 1]];
   if (a === 'down' && i < items.length - 1) [items[i + 1], items[i]] = [items[i], items[i + 1]];
-  renderItems(); renderPreview();
+  renderItems(); growAll(); renderPreview();
 });
-$('#addItem').onclick = () => { items.push(newItem()); renderItems(); renderPreview(); };
+/* Item text boxes: Enter adds a new line inside the same row; the box grows to fit. */
+function grow(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; }
+const growAll = () => document.querySelectorAll('#items textarea.grow').forEach(grow);
+$('#addItem').onclick = () => { items.push(newItem()); renderItems(); growAll(); renderPreview(); };
 
 /* Logo upload: normalised to PNG (max 400px) so PDF embedding is reliable */
 $('#logoFile').onchange = e => {
@@ -219,4 +222,4 @@ $('#generate').onclick = generatePDF;
 /* ---------- Init ---------- */
 document.querySelectorAll('[data-c]').forEach(el => el.value = company[el.dataset.c] || '');
 document.querySelectorAll('[data-q]').forEach(el => el.value = q[el.dataset.q]);
-syncLogo(); renderItems(); renderPreview();
+syncLogo(); renderItems(); growAll(); renderPreview();
